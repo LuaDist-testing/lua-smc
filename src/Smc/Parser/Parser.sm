@@ -1,0 +1,337 @@
+
+%class Parser
+%start HeaderMap::Start
+
+%source header.inc
+%source map.inc
+%source transition.inc
+
+%map ParamsMap
+%%
+
+Start
+{
+    WORD(token)
+        ParamSeparator
+        {
+            createParameter(token);
+        }
+
+    RIGHT_PAREN(token)
+        pop(paramsDone)
+        {}
+
+    DOLLAR(token: SmcLexer.Token)
+      [ctxt.targetLanguage == 'PERL'
+    or ctxt.targetLanguage == 'PHP'
+    or ctxt.targetLanguage == 'GRAPH'
+    or ctxt.targetLanguage == 'TABLE']
+        Dollar
+        {}
+
+    Default
+        Error
+        {
+            _error("Invalid parameter syntax.");
+        }
+}
+
+Dollar
+{
+    WORD(token)
+        ParamSeparator
+        {
+            createParameter(token, "$");
+        }
+
+    Default
+        Error
+        {
+            _error("Invalid parameter syntax.");
+        }
+}
+
+ParamSeparator
+{
+    COLON(token)
+        ParamType
+        {}
+
+    COMMA(token)
+      [ctxt.targetLanguage == 'TCL'
+    or ctxt.targetLanguage == 'GROOVY'
+    or ctxt.targetLanguage == 'JS'
+    or ctxt.targetLanguage == 'LUA'
+    or ctxt.targetLanguage == 'OOC'
+    or ctxt.targetLanguage == 'PERL'
+    or ctxt.targetLanguage == 'PHP'
+    or ctxt.targetLanguage == 'PYTHON'
+    or ctxt.targetLanguage == 'RUBY'
+    or ctxt.targetLanguage == 'GRAPH'
+    or ctxt.targetLanguage == 'TABLE']
+        Start
+        {
+            addParameter();
+        }
+
+    RIGHT_PAREN(token)
+      [ctxt.targetLanguage == 'TCL'
+    or ctxt.targetLanguage == 'GROOVY'
+    or ctxt.targetLanguage == 'JS'
+    or ctxt.targetLanguage == 'LUA'
+    or ctxt.targetLanguage == 'OOC'
+    or ctxt.targetLanguage == 'PERL'
+    or ctxt.targetLanguage == 'PHP'
+    or ctxt.targetLanguage == 'PYTHON'
+    or ctxt.targetLanguage == 'RUBY'
+    or ctxt.targetLanguage == 'GRAPH'
+    or ctxt.targetLanguage == 'TABLE']
+        pop(paramsDone)
+        {
+            addParameter();
+        }
+
+    COMMA(token)
+        Error
+        {
+            _error("Parameter type missing.");
+        }
+
+    RIGHT_PAREN(token)
+        pop(paramsError)
+        {
+            _error("Parameter type missing.");
+        }
+
+    Default
+        Error
+        {
+            _error("Invalid parameter syntax.");
+        }
+} // end of state ParamSeparator
+
+ParamType
+    Entry
+    {
+        setRawMode2();
+    }
+{
+    SOURCE(token)
+        NextParam
+        {
+            setParamType(token);
+        }
+}
+
+NextParam
+{
+    COMMA(token)
+        Start
+        {
+            addParameter();
+        }
+
+    RIGHT_PAREN(token)
+        pop(paramsDone)
+        {
+            addParameter();
+        }
+
+    Default
+        Error
+        {
+            _error("Invalid parameter syntax.");
+        }
+}
+
+Error
+    Entry
+    {
+        setRawMode2();
+    }
+{
+    SOURCE(token)
+        pop(paramsError)
+        {
+            clearParameter();
+        }
+}
+
+%% // end of map ParamsMap
+
+
+%map ActionsMap
+%%
+
+Start
+{
+    WORD(token)
+        Name
+        {
+            createAction(token);
+        }
+
+    RIGHT_BRACE(token)
+        pop(actionsDone)
+        {}
+
+    Default
+        Error
+        {
+            clearActions();
+            _error("Expecting either a method name or a closing brace");
+        }
+}
+
+Name
+{
+    LEFT_PAREN(token)
+        Args/push(ArgsMap::Start)
+        {
+            createArgList();
+        }
+
+    EQUAL(token)
+      [ctxt.targetLanguage == 'C_SHARP'
+    or ctxt.targetLanguage == 'GRAPH'
+    or ctxt.targetLanguage == 'GROOVY'
+    or ctxt.targetLanguage == 'JS'
+    or ctxt.targetLanguage == 'LUA'
+    or ctxt.targetLanguage == 'OOC'
+    or ctxt.targetLanguage == 'PERL'
+    or ctxt.targetLanguage == 'PYTHON'
+    or ctxt.targetLanguage == 'RUBY'
+    or ctxt.targetLanguage == 'SCALA'
+    or ctxt.targetLanguage == 'TABLE'
+    or ctxt.targetLanguage == 'VB']
+        PropertyAssignment
+        {
+            setProperty();
+            createArgList();
+        }
+
+    EQUAL(token)
+        Error
+        {
+            clearActions();
+            _error("'=' property assignment is not available with this language");
+        }
+
+    Default
+        Error
+        {
+            clearActions();
+            _error("Expecting an open paren after the method name");
+        }
+} // end of state Name
+
+Args
+{   // pop from ArgsMap
+    argsDone
+        End
+        {
+            setActionArgs();
+        }
+
+    argsError
+        Error
+        {}
+}
+
+End
+{
+    SEMICOLON(token)
+        Start
+        {
+            addAction();
+        }
+
+    Default
+        Error
+        {
+            _error("Expecting a ';' after closing paren");
+        }
+}
+
+PropertyAssignment
+    Entry
+    {
+        setRawMode3();
+    }
+{
+    SOURCE(token)
+        Start
+        {
+            createArgument(token);
+            addArgument();
+            setActionArgs();
+            addAction();
+        }
+}
+
+// Wait here for a right brace which we will assume to be the
+// action body's end.
+Error
+{
+    RIGHT_BRACE(token)
+        pop(actionsError)
+        {}
+
+    Default
+        nil
+        {}
+}
+
+%% // end of map ActionsMap
+
+
+%map ArgsMap
+%%
+
+Start
+    Entry
+    {
+        setRawMode2();
+    }
+{
+    SOURCE(token)
+        NextArg
+        {
+            createArgument(token);
+        }
+}
+
+NextArg
+{
+    COMMA(token)
+        Start
+        {
+            addArgument();
+        }
+
+    RIGHT_PAREN(token)
+        pop(argsDone)
+        {
+            addArgument();
+        }
+
+    Default
+        Error
+        {
+            _error("Missing ',' or closing paren after argument.");
+        }
+}
+
+Error
+{
+    RIGHT_BRACE(token)
+        pop(argsError)
+        {}
+
+    Default
+        nil
+        {}
+}
+
+%% // end of map ArgsMap
+
